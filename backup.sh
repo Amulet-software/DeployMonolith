@@ -12,7 +12,7 @@ mkdir -p "$target"
 
 for env in prod test; do
   docker compose exec -T "${env}-db" pg_dump -U monolith -d monolith_hub -Fc > "$target/${env}-database.dump"
-  docker compose run --rm --no-deps -v "$PWD/$target:/backup" "${env}-hub" sh -c "tar -C /data/storage -czf /backup/${env}-storage.tar.gz ."
+  docker compose exec -T "${env}-hub" tar -C /data/storage -czf - . > "$target/${env}-storage.tar.gz"
 done
 sha256sum "$target"/* > "$target/SHA256SUMS"
 find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -mtime "+$BACKUP_RETENTION_DAYS" -exec rm -rf -- {} +
