@@ -49,7 +49,7 @@ SITE_REF=main
 
 ### Вариант A: SSH
 
-Настройте SSH-ключ/agent или отдельную machine-учётную запись GitHub, имеющую read-доступ к HubMonolith и SiteMonolit, и замените URL в `.env.dev`:
+Так как `bootstrap.sh` и рекомендуемый deploy запускаются через `sudo`, SSH-доступ должен быть доступен именно root-пользователю либо передан через корректно настроенный root `ssh-agent`/`SSH_AUTH_SOCK`. Для отдельной серверной machine-учётной записи GitHub укажите SSH URL в `.env.dev`:
 
 ```env
 HUB_REPOSITORY=git@github.com:Amulet-software/HubMonolith.git
@@ -57,16 +57,16 @@ SITE_REPOSITORY=git@github.com:Amulet-software/SiteMonolit.git
 GITHUB_TOKEN_FILE=
 ```
 
-Проверка до bootstrap:
+Проверка в том же контексте, в котором выполняется deploy:
 
 ```bash
-git ls-remote git@github.com:Amulet-software/HubMonolith.git HEAD
-git ls-remote git@github.com:Amulet-software/SiteMonolit.git HEAD
+sudo git ls-remote git@github.com:Amulet-software/HubMonolith.git HEAD
+sudo git ls-remote git@github.com:Amulet-software/SiteMonolit.git HEAD
 ```
 
 ### Вариант B: fine-grained GitHub token по HTTPS
 
-Создайте fine-grained token только с read-доступом к нужным приватным репозиториям и `Contents: Read`, затем на DEV-сервере:
+Для первого DEV этот вариант проще: создайте fine-grained token только с read-доступом к нужным приватным репозиториям и `Contents: Read`, затем на DEV-сервере:
 
 ```bash
 sudo install -d -m 700 /root/.config/monolith
