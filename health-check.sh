@@ -1,18 +1,23 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 cd "$(dirname "$0")"
-env_get() { sed -n "s/^$1=//p" .env | tail -n 1; }
-PROD_SITE_HOST=$(env_get PROD_SITE_HOST)
-PROD_HUB_HOST=$(env_get PROD_HUB_HOST)
-TEST_SITE_HOST=$(env_get TEST_SITE_HOST)
-TEST_HUB_HOST=$(env_get TEST_HUB_HOST)
+
+profile=${1:-}
+case "$profile" in dev|test|production) ;; *) echo "Usage: ./health-check.sh <dev|test|production>" >&2; exit 2 ;; esac
+env_file=".env.$profile"
+[[ -f "$env_file" ]] || { echo "Missing $env_file" >&2; exit 1; }
+env_get() { sed -n "s/^$1=//p" "$env_file" | tail -n 1; }
+SITE_PUBLIC_URL=$(env_get SITE_PUBLIC_URL)
+HUB_PUBLIC_BASE_URL=$(env_get HUB_PUBLIC_BASE_URL)
+
 for attempt in {1..30}; do
-  failed=0
-  for url in "http://${PROD_SITE_HOST}/" "http://${PROD_HUB_HOST}/health/ready" "http://${TEST_SITE_HOST}/" "http://${TEST_HUB_HOST}/health/ready"; do
-    curl --fail --silent --show-error --max-time 5 --resolve "$(echo "$url" | sed -E 's#http://([^/]+).*#\1#'):80:127.0.0.1" "$url" >/dev/null || failed=1
-  done
-  [[ $failed -eq 0 ]] && { echo "All Monolith endpoints are healthy."; exit 0; }
+  if curl --fail --silent --show-error --max-time 5 "$SITE_PUBLIC_URL/" >/dev/null \
+    && curl --fail --silent --show-error --max-time 5 "$HUB_PUBLIC_BASE_URL/health/ready" >/dev/null; then
+    echo "Monolith $profile is healthy: $SITE_PUBLIC_URL, $HUB_PUBLIC_BASE_URL"
+    exit 0
+  fi
   sleep 5
 done
-docker compose ps
+
+docker compose --project-name "monolith-$profile" --env-file "$env_file" --profile "$profile" ps
 exit 1
