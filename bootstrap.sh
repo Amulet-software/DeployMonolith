@@ -12,7 +12,7 @@ if [[ ${EUID} -ne 0 ]]; then echo "Run as root: sudo ./bootstrap.sh dev" >&2; ex
 command -v apt-get >/dev/null || { echo "Supported bootstrap OS: Debian/Ubuntu" >&2; exit 1; }
 
 apt-get update
-apt-get install -y ca-certificates curl git openssl
+apt-get install -y ca-certificates curl git openssl openssh-client
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/$(. /etc/os-release; echo "$ID")/gpg -o /etc/apt/keyrings/docker.asc
 chmod a+r /etc/apt/keyrings/docker.asc
@@ -29,6 +29,8 @@ for key in POSTGRES_PASSWORD HUB_ADMIN_KEY; do
   sed -i "s/^${key}=change-me$/${key}=${value}/" "$env_file"
 done
 chmod 600 "$env_file"
+
+echo "Infrastructure prerequisites are installed. Running DEV deploy preflight and deployment."
+echo "Private GitHub repositories must already be readable via SSH credentials or GITHUB_TOKEN_FILE in $env_file."
 ./deploy.sh "$profile"
 echo "DEV bootstrap complete: site http://192.168.1.32, hub http://192.168.1.32:8080"
-
