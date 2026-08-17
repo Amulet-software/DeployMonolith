@@ -21,6 +21,7 @@ jobs:
           bash -n deploy.sh
           bash -n health-check.sh
           bash -n backup.sh
+          bash -n cicd-preflight.sh
 
       - name: Validate DEV Compose
         run: |
