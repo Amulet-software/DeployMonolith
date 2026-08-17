@@ -19,6 +19,7 @@
 - Hub readiness: `http://192.168.1.32:8080/health/ready`
 - PostgreSQL не публикуется на хост и доступен только внутри Docker-сети.
 - Site собирается с `VITE_MONOLITH_HUB_URL=http://192.168.1.32:8080`, поэтому DEV-сайт использует DEV Hub.
+- `SITE_ENABLE_DEVELOPMENT=true` передаёт в Site build-флаг `VITE_MONOLITH_ENABLE_DEVELOPMENT=true`; только DEV-сборка показывает канал Development. На обычных публичных сборках он скрыт.
 
 ## Профили
 
@@ -39,7 +40,7 @@ HUB_REF=main
 SITE_REF=main
 ```
 
-Перед первым реальным деплоем в `main` должны находиться согласованные версии HubMonolith и SiteMonolit с поддержкой release channels и `VITE_MONOLITH_HUB_URL`.
+Перед первым реальным деплоем в `main` должны находиться согласованные версии HubMonolith и SiteMonolit с поддержкой release channels, `VITE_MONOLITH_HUB_URL` и DEV-only `VITE_MONOLITH_ENABLE_DEVELOPMENT`.
 
 ## Доступ к приватным GitHub-репозиториям
 
@@ -105,7 +106,7 @@ sudo ./bootstrap.sh dev
 3. генерирует пароль PostgreSQL и Hub Admin API key;
 4. запускает `deploy.sh dev`;
 5. `deploy.sh` проверяет доступ к Hub/Site, загружает `main`, валидирует Compose и собирает контейнеры;
-6. Site получает адрес DEV Hub как Vite build arg;
+6. Site получает адрес DEV Hub и разрешение Development как Vite build args;
 7. запускаются `db`, `hub`, `site`, `nginx`;
 8. выполняется внешний health-check Site и Hub.
 
@@ -178,6 +179,7 @@ sudo ./backup.sh dev
 - `.env.dev`, `.runtime/` и `backups/` не попадают в Git;
 - проверка подписанных `.monmod` включена;
 - GitHub token, если используется, хранится отдельным root-only файлом;
+- Development-переключатель включён только DEV build-флагом;
 - Test/Production нельзя случайно поднять текущими bootstrap/deploy-скриптами.
 
 ## CI MonolithDeploy
