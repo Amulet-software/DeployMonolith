@@ -56,6 +56,8 @@ sudo ./bootstrap.sh dev
 
 `bootstrap.sh dev` устанавливает Docker/Compose/Git/OpenSSH/rsync, создаёт пользователя `monolith`, `.env.dev`, случайные секреты PostgreSQL/Hub, выдаёт `monolith` доступ к Docker и затем выполняет `deploy.sh dev` от имени `monolith`.
 
+Перед `apt-get update` скрипт автоматически отключает только устаревшие источники `cdrom:`/`file:/cdrom`, предварительно сохраняя рядом резервную копию исходного `.list`-файла.
+
 Для приватных HubMonolith/SiteMonolit заранее настройте read-доступ именно для пользователя `monolith`: SSH либо `GITHUB_TOKEN_FILE` в `.env.dev`. Для HTTPS fine-grained token рекомендуется файл `/home/monolith/.config/monolith/github-token` с владельцем `monolith` и режимом `600`.
 
 ## Подготовка к первому CI/CD-тесту
