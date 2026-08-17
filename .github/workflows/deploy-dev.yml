@@ -1,0 +1,81 @@
+name: Deploy DEV
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type DEPLOY-DEV to deploy Site + Hub to 192.168.1.32"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monolith-dev-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to 192.168.1.32
+    if: ${{ inputs.confirmation == 'DEPLOY-DEV' }}
+    runs-on: [self-hosted, linux, x64, monolith-dev]
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout MonolithDeploy
+        uses: actions/checkout@v4
+
+      - name: Verify DEV runner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(id -un)" = "monolith"
+          ip -4 -o addr show | grep -Eq '[[:space:]]192\.168\.1\.32/'
+          docker info >/dev/null
+          test -d /opt/monolith
+          test -r /opt/monolith/.env.dev
+          command -v rsync >/dev/null
+
+      - name: Sync deployment definition
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rsync -a --delete \
+            --exclude '.git/' \
+            --exclude '.env.dev' \
+            --exclude '.runtime/' \
+            --exclude 'backups/' \
+            "$GITHUB_WORKSPACE/" /opt/monolith/
+
+      - name: Run DEV preflight
+        shell: bash
+        run: |
+          cd /opt/monolith
+          bash ./cicd-preflight.sh dev
+
+      - name: Deploy DEV
+        shell: bash
+        run: |
+          cd /opt/monolith
+          ./deploy.sh dev
+
+      - name: Verify public DEV endpoints
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error --max-time 10 http://192.168.1.32/ >/dev/null
+          curl --fail --silent --show-error --max-time 10 http://192.168.1.32:8080/health/ready >/dev/null
+
+      - name: Deployment summary
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          {
+            echo '## DEV deployment successful'
+            echo ''
+            echo '- Site: http://192.168.1.32'
+            echo '- Hub: http://192.168.1.32:8080'
+            echo '- Swagger: http://192.168.1.32:8080/docs'
+            echo '- Readiness: http://192.168.1.32:8080/health/ready'
+          } >> "$GITHUB_STEP_SUMMARY"
