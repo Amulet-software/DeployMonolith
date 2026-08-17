@@ -1,0 +1,30 @@
+server {
+  listen 80;
+  server_name ${PROD_SITE_HOST};
+  location / { proxy_pass http://prod-site; include /etc/nginx/proxy_params; }
+}
+server {
+  listen 80;
+  server_name ${PROD_HUB_HOST};
+  client_max_body_size 2g;
+  proxy_read_timeout 300s;
+  location / { proxy_pass http://prod-hub:8080; include /etc/nginx/proxy_params; }
+}
+server {
+  listen 80;
+  server_name ${TEST_SITE_HOST};
+  location / { proxy_pass http://test-site; include /etc/nginx/proxy_params; }
+}
+server {
+  listen 80;
+  server_name ${TEST_HUB_HOST};
+  client_max_body_size 2g;
+  proxy_read_timeout 300s;
+  location / { proxy_pass http://test-hub:8080; include /etc/nginx/proxy_params; }
+}
+server {
+  listen 80 default_server;
+  server_name _;
+  return 444;
+}
+
