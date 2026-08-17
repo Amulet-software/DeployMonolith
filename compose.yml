@@ -44,6 +44,7 @@ services:
       TEST_HUB_HOST: ${TEST_HUB_HOST}
     volumes:
       - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./nginx/proxy.conf:/etc/nginx/proxy.conf:ro
     depends_on:
       prod-site: {condition: service_healthy}
       prod-hub: {condition: service_healthy}
