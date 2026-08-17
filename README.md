@@ -18,8 +18,8 @@
 - Swagger: `http://192.168.1.32:8080/docs`
 - Hub readiness: `http://192.168.1.32:8080/health/ready`
 - PostgreSQL не публикуется на хост и доступен только внутри Docker-сети.
-- Site собирается с `VITE_MONOLITH_HUB_URL=http://192.168.1.32:8080`, поэтому DEV-сайт использует DEV Hub.
-- `SITE_ENABLE_DEVELOPMENT=true` передаёт в Site build-флаг `VITE_MONOLITH_ENABLE_DEVELOPMENT=true`; только DEV-сборка показывает канал Development. На обычных публичных сборках он скрыт.
+- Site собирается с `VITE_MONOLITH_HUB_URL=http://192.168.1.32:8080`.
+- DEV build включает `VITE_MONOLITH_ENABLE_DEVELOPMENT=true`; публичные Site-сборки по умолчанию Development не показывают.
 
 ## Профили
 
@@ -29,9 +29,9 @@
 | `test` | `https://amuletsimple.ru:8443/` | зарезервирован, деплой заблокирован |
 | `production` | `https://amuletsimple.ru/` | зарезервирован, деплой заблокирован |
 
-`bootstrap.sh` и `deploy.sh` намеренно разрешают только `dev`. Действующие Test и Production этой репой пока не изменяются.
+`bootstrap.sh` и `deploy.sh` намеренно разрешают только `dev`. Test и Production этой репой пока не изменяются.
 
-## Что должно быть слито перед первым DEV deploy
+## DEV source refs
 
 DEV по умолчанию использует `main`:
 
@@ -40,54 +40,11 @@ HUB_REF=main
 SITE_REF=main
 ```
 
-Перед первым реальным деплоем в `main` должны находиться согласованные версии HubMonolith и SiteMonolit с поддержкой release channels, `VITE_MONOLITH_HUB_URL` и DEV-only `VITE_MONOLITH_ENABLE_DEVELOPMENT`.
+Для воспроизводимого релиза можно закрепить tag или commit SHA.
 
-## Доступ к приватным GitHub-репозиториям
+## Первый запуск DEV вручную
 
-`deploy.sh` сначала выполняет read-only preflight для HubMonolith и SiteMonolit. Docker build не начнётся, если сервер не может прочитать оба репозитория.
-
-Поддерживаются два варианта.
-
-### Вариант A: SSH
-
-Так как `bootstrap.sh` и рекомендуемый deploy запускаются через `sudo`, SSH-доступ должен быть доступен именно root-пользователю либо передан через корректно настроенный root `ssh-agent`/`SSH_AUTH_SOCK`. Для отдельной серверной machine-учётной записи GitHub укажите SSH URL в `.env.dev`:
-
-```env
-HUB_REPOSITORY=git@github.com:Amulet-software/HubMonolith.git
-SITE_REPOSITORY=git@github.com:Amulet-software/SiteMonolit.git
-GITHUB_TOKEN_FILE=
-```
-
-Проверка в том же контексте, в котором выполняется deploy:
-
-```bash
-sudo git ls-remote git@github.com:Amulet-software/HubMonolith.git HEAD
-sudo git ls-remote git@github.com:Amulet-software/SiteMonolit.git HEAD
-```
-
-### Вариант B: fine-grained GitHub token по HTTPS
-
-Для первого DEV этот вариант проще: создайте fine-grained token только с read-доступом к нужным приватным репозиториям и `Contents: Read`, затем на DEV-сервере:
-
-```bash
-sudo install -d -m 700 /root/.config/monolith
-sudo nano /root/.config/monolith/github-token
-sudo chmod 600 /root/.config/monolith/github-token
-```
-
-В `.env.dev`:
-
-```env
-GITHUB_TOKEN_FILE=/root/.config/monolith/github-token
-HUB_REPOSITORY=https://github.com/Amulet-software/HubMonolith.git
-SITE_REPOSITORY=https://github.com/Amulet-software/SiteMonolit.git
-```
-
-Токен не записывается в Git remote URL и не передаётся в контейнеры; `deploy.sh` использует временный `GIT_ASKPASS` только для Git-операций.
-
-## Первый запуск DEV на Debian/Ubuntu
-
-Сервер должен иметь адрес `192.168.1.32`. Сначала получите сам MonolithDeploy через уже настроенный Git-доступ, затем:
+На Debian/Ubuntu:
 
 ```bash
 sudo mkdir -p /opt/monolith
@@ -97,55 +54,71 @@ cd /opt/monolith
 sudo ./bootstrap.sh dev
 ```
 
-Если MonolithDeploy клонируется по SSH, используйте соответствующий SSH URL.
+`bootstrap.sh dev` устанавливает Docker/Compose/Git/OpenSSH/rsync, создаёт пользователя `monolith`, `.env.dev`, случайные секреты PostgreSQL/Hub, выдаёт `monolith` доступ к Docker и затем выполняет `deploy.sh dev` от имени `monolith`.
 
-`bootstrap.sh dev`:
+Для приватных HubMonolith/SiteMonolit заранее настройте read-доступ именно для пользователя `monolith`: SSH либо `GITHUB_TOKEN_FILE` в `.env.dev`. Для HTTPS fine-grained token рекомендуется файл `/home/monolith/.config/monolith/github-token` с владельцем `monolith` и режимом `600`.
 
-1. устанавливает Docker Engine, Docker Compose, Git, OpenSSL и OpenSSH client;
-2. создаёт `.env.dev` из `profiles/dev.env.example`;
-3. генерирует пароль PostgreSQL и Hub Admin API key;
-4. запускает `deploy.sh dev`;
-5. `deploy.sh` проверяет доступ к Hub/Site, загружает `main`, валидирует Compose и собирает контейнеры;
-6. Site получает адрес DEV Hub и разрешение Development как Vite build args;
-7. запускаются `db`, `hub`, `site`, `nginx`;
-8. выполняется внешний health-check Site и Hub.
+## Подготовка к первому CI/CD-тесту
 
-`.env.dev` имеет права `600`, исключён из Git и должен резервироваться отдельно как секрет.
-
-## Обновление DEV
-
-После merge изменений в `main`:
+Чтобы **первый реальный deploy выполнил GitHub Actions**, а не bootstrap, используйте:
 
 ```bash
 cd /opt/monolith
-sudo ./deploy.sh dev
+sudo ./bootstrap.sh dev --prepare-only
 ```
 
-Скрипт:
+Этот режим ставит инфраструктурные зависимости, создаёт пользователя/секреты/права, но Site/Hub не запускает.
+
+Затем:
+
+1. настройте read-доступ `monolith` к приватным HubMonolith и SiteMonolit;
+2. зарегистрируйте repository-scoped self-hosted runner репозитория `MonolithDeploy` от пользователя `monolith`;
+3. при `config.sh` добавьте custom label `monolith-dev`;
+4. установите runner как systemd service от пользователя `monolith`;
+5. в GitHub Actions вручную запустите workflow **Deploy DEV**, введя подтверждение `DEPLOY-DEV`.
+
+Подробная пошаговая инструкция: [`docs/first-cicd-test.md`](docs/first-cicd-test.md).
+
+## Что делает Deploy DEV workflow
 
 ```text
-GitHub access preflight
+manual workflow_dispatch
+        ↓
+repository-scoped runner
+self-hosted + linux + x64 + monolith-dev
+        ↓
+проверка user/IP/Docker/.env.dev
+        ↓
+синхронизация MonolithDeploy → /opt/monolith
+        ↓
+DEV preflight
         ↓
 fetch HubMonolith main
 fetch SiteMonolit main
-        ↓
-docker compose config
         ↓
 docker compose build --pull
         ↓
 docker compose up -d
         ↓
-health-check
+health-check Site + Hub
+```
+
+На первом этапе workflow **только ручной**. Merge в Hub/Site сам по себе DEV не обновляет. Автоматический trigger после успешного CI подключается только после успешного первого end-to-end теста.
+
+## Ручное обновление DEV
+
+```bash
+cd /opt/monolith
+sudo -u monolith ./deploy.sh dev
 ```
 
 PostgreSQL и Hub storage находятся в именованных Docker volumes и не удаляются при обычной пересборке контейнеров.
 
-Для воспроизводимого релиза вместо `main` можно закрепить tag или commit SHA в `HUB_REF`/`SITE_REF`.
-
 ## Проверка и журналы
 
 ```bash
-./health-check.sh dev
+cd /opt/monolith
+sudo -u monolith ./health-check.sh dev
 docker compose --project-name monolith-dev --env-file .env.dev --profile dev ps
 docker compose --project-name monolith-dev --env-file .env.dev --profile dev logs -f hub
 docker compose --project-name monolith-dev --env-file .env.dev --profile dev logs -f site
@@ -155,33 +128,29 @@ docker compose --project-name monolith-dev --env-file .env.dev --profile dev log
 ## Резервное копирование
 
 ```bash
-sudo ./backup.sh dev
+cd /opt/monolith
+sudo -u monolith ./backup.sh dev
 ```
 
 Результат сохраняется в `backups/dev/<UTC timestamp>/`:
 
 - `database.dump` — PostgreSQL custom-format dump;
-- `hub-storage.tar.gz` — файлы Hub;
+- `hub-storage.tar.gz` — Hub storage;
 - `SHA256SUMS` — контрольные суммы.
 
-Срок хранения задаётся `BACKUP_RETENTION_DAYS` в `.env.dev`. Копии необходимо переносить за пределы DEV-сервера.
-
-Пример ежедневного cron:
-
-```cron
-15 3 * * * cd /opt/monolith && ./backup.sh dev >> /var/log/monolith-backup.log 2>&1
-```
+Срок хранения задаётся `BACKUP_RETENTION_DAYS` в `.env.dev`.
 
 ## Безопасность
 
 - наружу публикуются только `192.168.1.32:80` и `192.168.1.32:8080`;
 - PostgreSQL `5432` не публикуется;
 - `.env.dev`, `.runtime/` и `backups/` не попадают в Git;
-- проверка подписанных `.monmod` включена;
-- GitHub token, если используется, хранится отдельным root-only файлом;
-- Development-переключатель включён только DEV build-флагом;
-- Test/Production нельзя случайно поднять текущими bootstrap/deploy-скриптами.
+- signed `.monmod` enforcement включён;
+- runner работает не от root, а от отдельного пользователя `monolith`;
+- runner рекомендуется регистрировать только в `MonolithDeploy`, не на всю организацию;
+- workflow требует label `monolith-dev` и ручное подтверждение `DEPLOY-DEV`;
+- Test/Production текущими deploy-скриптами запустить нельзя.
 
 ## CI MonolithDeploy
 
-GitHub Actions проверяет shell-синтаксис скриптов и `docker compose config` для DEV-профиля. Это не заменяет реальный smoke test на `192.168.1.32`, но блокирует очевидно сломанную инфраструктурную конфигурацию до merge.
+Обычный CI проверяет shell-синтаксис инфраструктурных скриптов и `docker compose config` для DEV. Реальный deployment выполняет отдельный manual workflow `Deploy DEV` только на DEV self-hosted runner.
