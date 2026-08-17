@@ -18,6 +18,24 @@ esac
 if [[ ${EUID} -ne 0 ]]; then echo "Run as root: sudo ./bootstrap.sh dev [--prepare-only]" >&2; exit 1; fi
 command -v apt-get >/dev/null || { echo "Supported bootstrap OS: Debian/Ubuntu" >&2; exit 1; }
 
+disable_cdrom_sources() {
+  local source_file
+  local -a source_files=(/etc/apt/sources.list)
+  shopt -s nullglob
+  source_files+=(/etc/apt/sources.list.d/*.list)
+  shopt -u nullglob
+
+  for source_file in "${source_files[@]}"; do
+    [[ -f "$source_file" ]] || continue
+    if grep -Eq '^[[:space:]]*deb[[:space:]].*(cdrom:|file:/cdrom)' "$source_file"; then
+      [[ -f "$source_file.monolith-backup" ]] || cp -a "$source_file" "$source_file.monolith-backup"
+      sed -i -E '/^[[:space:]]*deb[[:space:]].*(cdrom:|file:\/cdrom)/s/^/# disabled by MonolithDeploy: /' "$source_file"
+      echo "Disabled stale CD-ROM APT source in $source_file"
+    fi
+  done
+}
+
+disable_cdrom_sources
 apt-get update
 apt-get install -y ca-certificates curl git openssl openssh-client rsync iproute2
 install -m 0755 -d /etc/apt/keyrings
