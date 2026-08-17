@@ -74,7 +74,7 @@ EOF
 }
 
 ensure_github_host_key() {
-  if ! grep -qE '(^|[ ,])github\.com([ ,]|$)' "$ssh_dir/known_hosts" 2>/dev/null; then
+  if ! ssh-keygen -F github.com -f "$ssh_dir/known_hosts" >/dev/null 2>&1; then
     runuser -u "$deploy_user" -- bash -c 'ssh-keyscan -H github.com >> "$HOME/.ssh/known_hosts"'
   fi
 }
