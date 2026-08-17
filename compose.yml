@@ -1,118 +1,86 @@
-name: monolith
-
-x-db: &db
-  image: postgres:16-alpine
-  restart: unless-stopped
-  healthcheck:
-    test: ["CMD-SHELL", "pg_isready -U monolith -d monolith_hub"]
-    interval: 5s
-    timeout: 5s
-    retries: 20
-
-x-hub: &hub
-  build:
-    context: ./.runtime/HubMonolith
-  restart: unless-stopped
-  expose: ["8080"]
-  healthcheck:
-    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=3)"]
-    interval: 10s
-    timeout: 5s
-    retries: 15
-
-x-site: &site
-  build:
-    context: ./.runtime/SiteMonolit/SiteSimpleAPPDEF
-  restart: unless-stopped
-  expose: ["80"]
-  healthcheck:
-    test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
-    interval: 10s
-    timeout: 5s
-    retries: 10
+name: monolith-${DEPLOY_PROFILE}
 
 services:
-  gateway:
-    image: nginx:1.27-alpine
+  db:
+    image: postgres:16-alpine
+    profiles: ["${DEPLOY_PROFILE}"]
     restart: unless-stopped
-    ports:
-      - "80:80"
     environment:
-      PROD_SITE_HOST: ${PROD_SITE_HOST}
-      PROD_HUB_HOST: ${PROD_HUB_HOST}
-      TEST_SITE_HOST: ${TEST_SITE_HOST}
-      TEST_HUB_HOST: ${TEST_HUB_HOST}
+      POSTGRES_DB: monolith_hub
+      POSTGRES_USER: monolith
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U monolith -d monolith_hub"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  hub:
+    build:
+      context: ./.runtime/HubMonolith
+    profiles: ["${DEPLOY_PROFILE}"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    expose: ["8080"]
+    environment:
+      HUB_ENVIRONMENT: ${HUB_ENVIRONMENT}
+      HUB_DATABASE_URL: postgresql+psycopg://monolith:${POSTGRES_PASSWORD}@db:5432/monolith_hub
+      HUB_STORAGE_ROOT: /data/storage
+      HUB_TRUSTED_PUBLISHERS_ROOT: /data/trusted_publishers
+      HUB_ADMIN_KEY: ${HUB_ADMIN_KEY}
+      HUB_PUBLIC_BASE_URL: ${HUB_PUBLIC_BASE_URL}
+      HUB_CORS_ORIGINS: ${HUB_CORS_ORIGINS}
+      HUB_REQUIRE_SIGNED_MONMOD: ${HUB_REQUIRE_SIGNED_MONMOD:-true}
+      HUB_AUTO_SEED: ${HUB_AUTO_SEED:-false}
+      HUB_LOG_LEVEL: ${HUB_LOG_LEVEL:-INFO}
+    volumes:
+      - hub_storage:/data/storage
+      - ./.runtime/HubMonolith/trusted_publishers:/data/trusted_publishers:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  site:
+    build:
+      context: ./.runtime/SiteMonolit/SiteSimpleAPPDEF
+    profiles: ["${DEPLOY_PROFILE}"]
+    restart: unless-stopped
+    expose: ["80"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  nginx:
+    image: nginx:1.27-alpine
+    profiles: ["${DEPLOY_PROFILE}"]
+    restart: unless-stopped
+    depends_on:
+      site:
+        condition: service_healthy
+      hub:
+        condition: service_healthy
+    ports:
+      - "${SITE_BIND_IP}:${SITE_PORT}:80"
+      - "${HUB_BIND_IP}:${HUB_PORT}:8080"
     volumes:
       - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./nginx/proxy.conf:/etc/nginx/proxy.conf:ro
-    depends_on:
-      prod-site: {condition: service_healthy}
-      prod-hub: {condition: service_healthy}
-      test-site: {condition: service_healthy}
-      test-hub: {condition: service_healthy}
-
-  prod-db:
-    <<: *db
-    environment:
-      POSTGRES_DB: monolith_hub
-      POSTGRES_USER: monolith
-      POSTGRES_PASSWORD: ${PROD_POSTGRES_PASSWORD}
-    volumes: [prod_postgres:/var/lib/postgresql/data]
-
-  prod-hub:
-    <<: *hub
-    depends_on:
-      prod-db: {condition: service_healthy}
-    environment:
-      HUB_ENVIRONMENT: production
-      HUB_DATABASE_URL: postgresql+psycopg://monolith:${PROD_POSTGRES_PASSWORD}@prod-db:5432/monolith_hub
-      HUB_STORAGE_ROOT: /data/storage
-      HUB_TRUSTED_PUBLISHERS_ROOT: /data/trusted_publishers
-      HUB_ADMIN_KEY: ${PROD_HUB_ADMIN_KEY}
-      HUB_PUBLIC_BASE_URL: ${PROD_HUB_PUBLIC_BASE_URL}
-      HUB_CORS_ORIGINS: ${PROD_HUB_CORS_ORIGINS}
-      HUB_REQUIRE_SIGNED_MONMOD: ${HUB_REQUIRE_SIGNED_MONMOD:-true}
-      HUB_AUTO_SEED: ${HUB_AUTO_SEED:-false}
-      HUB_LOG_LEVEL: ${HUB_LOG_LEVEL:-INFO}
-    volumes:
-      - prod_hub_storage:/data/storage
-      - ./.runtime/HubMonolith/trusted_publishers:/data/trusted_publishers:ro
-
-  prod-site:
-    <<: *site
-
-  test-db:
-    <<: *db
-    environment:
-      POSTGRES_DB: monolith_hub
-      POSTGRES_USER: monolith
-      POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD}
-    volumes: [test_postgres:/var/lib/postgresql/data]
-
-  test-hub:
-    <<: *hub
-    depends_on:
-      test-db: {condition: service_healthy}
-    environment:
-      HUB_ENVIRONMENT: test
-      HUB_DATABASE_URL: postgresql+psycopg://monolith:${TEST_POSTGRES_PASSWORD}@test-db:5432/monolith_hub
-      HUB_STORAGE_ROOT: /data/storage
-      HUB_TRUSTED_PUBLISHERS_ROOT: /data/trusted_publishers
-      HUB_ADMIN_KEY: ${TEST_HUB_ADMIN_KEY}
-      HUB_PUBLIC_BASE_URL: ${TEST_HUB_PUBLIC_BASE_URL}
-      HUB_CORS_ORIGINS: ${TEST_HUB_CORS_ORIGINS}
-      HUB_REQUIRE_SIGNED_MONMOD: ${HUB_REQUIRE_SIGNED_MONMOD:-true}
-      HUB_AUTO_SEED: ${HUB_AUTO_SEED:-false}
-      HUB_LOG_LEVEL: ${HUB_LOG_LEVEL:-INFO}
-    volumes:
-      - test_hub_storage:/data/storage
-      - ./.runtime/HubMonolith/trusted_publishers:/data/trusted_publishers:ro
-
-  test-site:
-    <<: *site
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ && wget -q -O /dev/null http://127.0.0.1:8080/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
 volumes:
-  prod_postgres:
-  prod_hub_storage:
-  test_postgres:
-  test_hub_storage:
+  postgres_data:
+    name: monolith_${DEPLOY_PROFILE}_postgres
+  hub_storage:
+    name: monolith_${DEPLOY_PROFILE}_hub_storage
