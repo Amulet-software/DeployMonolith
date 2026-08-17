@@ -27,7 +27,7 @@ sudo -u monolith docker info >/dev/null && echo Docker_OK
 ls -l /opt/monolith/.env.dev
 ```
 
-Если Docker group была добавлена только что, runner нужно запускать уже после bootstrap, чтобы service получил актуальные группы.
+Runner нужно регистрировать уже после bootstrap, чтобы его systemd service получил актуальное членство пользователя `monolith` в группе `docker`.
 
 ## 2. Дать `monolith` read-доступ к HubMonolith и SiteMonolit
 
@@ -52,15 +52,22 @@ SITE_REF=main
 
 Не помещайте token в `.env.dev` напрямую и не вставляйте его в remote URL.
 
-## 3. Проверить private-repo access вручную
+## 3. Безопасно проверить private-repo access
 
-`deploy.sh` сам делает preflight, но до регистрации runner полезно проверить:
+Команда ниже проверяет доступ к HubMonolith и SiteMonolit, но **не клонирует исходники, не собирает Docker images и не запускает контейнеры**:
 
 ```bash
-sudo -u monolith /opt/monolith/deploy.sh dev
+cd /opt/monolith
+sudo -u monolith ./deploy.sh dev --preflight-only
 ```
 
-Для первого CI/CD-теста эту команду **не выполняйте до конца**, если хотите, чтобы именно GitHub Actions был первым deploy. Вместо этого достаточно убедиться, что token-файл существует и читается; реальный repository preflight выполнит workflow перед Docker build.
+Ожидаемый результат:
+
+```text
+Checking GitHub access: HubMonolith
+Checking GitHub access: SiteMonolit
+Git access preflight passed for HubMonolith and SiteMonolit. No containers were built or started.
+```
 
 ## 4. Зарегистрировать repository-scoped self-hosted runner
 
