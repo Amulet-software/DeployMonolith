@@ -9,7 +9,7 @@ deploy_user=${MONOLITH_DEPLOY_USER:-monolith}
 home_dir=$(getent passwd "$deploy_user" 2>/dev/null | cut -d: -f6 || true)
 runner_root=${MONOLITH_RUNNER_ROOT:-${home_dir:-/home/$deploy_user}/actions-runner}
 
-truth() { if "$@"; then echo true; else echo false; fi; }
+truth() { if "$@" >/dev/null 2>&1; then echo true; else echo false; fi; }
 
 printf 'PROFILE=%s\n' "$profile"
 printf 'DEPLOY_USER_EXISTS=%s\n' "$(truth id "$deploy_user")"
