@@ -22,17 +22,76 @@ HUB_REPOSITORY=$(env_get HUB_REPOSITORY)
 HUB_REF=$(env_get HUB_REF)
 SITE_REPOSITORY=$(env_get SITE_REPOSITORY)
 SITE_REF=$(env_get SITE_REF)
+GITHUB_TOKEN_FILE=$(env_get GITHUB_TOKEN_FILE || true)
 mkdir -p .runtime
+
+askpass_file=""
+cleanup() {
+  [[ -z "$askpass_file" ]] || rm -f "$askpass_file"
+  unset MONOLITH_GITHUB_TOKEN GIT_ASKPASS || true
+}
+trap cleanup EXIT
+
+setup_git_auth() {
+  export GIT_TERMINAL_PROMPT=0
+  [[ -n "$GITHUB_TOKEN_FILE" ]] || return 0
+  [[ -f "$GITHUB_TOKEN_FILE" ]] || {
+    echo "GitHub token file not found: $GITHUB_TOKEN_FILE" >&2
+    exit 1
+  }
+  local mode
+  mode=$(stat -c '%a' "$GITHUB_TOKEN_FILE")
+  if [[ "$mode" != "600" && "$mode" != "400" ]]; then
+    echo "GitHub token file must have mode 600 or 400: $GITHUB_TOKEN_FILE (current: $mode)" >&2
+    exit 1
+  fi
+  MONOLITH_GITHUB_TOKEN=$(tr -d '\r\n' < "$GITHUB_TOKEN_FILE")
+  [[ -n "$MONOLITH_GITHUB_TOKEN" ]] || { echo "GitHub token file is empty." >&2; exit 1; }
+  export MONOLITH_GITHUB_TOKEN
+  askpass_file=$(mktemp)
+  cat > "$askpass_file" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+  *Username*) printf '%s\n' 'x-access-token' ;;
+  *Password*) printf '%s\n' "$MONOLITH_GITHUB_TOKEN" ;;
+  *) exit 1 ;;
+esac
+EOF
+  chmod 700 "$askpass_file"
+  export GIT_ASKPASS="$askpass_file"
+}
+
+preflight_repo() {
+  local label=$1 url=$2
+  echo "Checking GitHub access: $label"
+  if ! git ls-remote "$url" HEAD >/dev/null 2>&1; then
+    echo "Cannot read $label repository: $url" >&2
+    echo "Configure SSH credentials or set GITHUB_TOKEN_FILE to a root-readable fine-grained token file." >&2
+    exit 1
+  fi
+}
 
 sync_repo() {
   local url=$1 ref=$2 dir=$3 resolved=$2
-  if [[ ! -d "$dir/.git" ]]; then git clone "$url" "$dir"; fi
+  if [[ ! -d "$dir/.git" ]]; then
+    git clone --no-checkout "$url" "$dir"
+  else
+    git -C "$dir" remote set-url origin "$url"
+  fi
   git -C "$dir" fetch --tags --prune origin
-  git -C "$dir" rev-parse --verify --quiet "origin/$ref" >/dev/null && resolved="origin/$ref"
+  if git -C "$dir" rev-parse --verify --quiet "origin/$ref^{commit}" >/dev/null; then
+    resolved="origin/$ref"
+  elif ! git -C "$dir" rev-parse --verify --quiet "$ref^{commit}" >/dev/null; then
+    echo "Ref '$ref' does not exist in $url" >&2
+    exit 1
+  fi
   git -C "$dir" checkout --detach "$resolved"
   git -C "$dir" reset --hard "$resolved"
 }
 
+setup_git_auth
+preflight_repo "HubMonolith" "$HUB_REPOSITORY"
+preflight_repo "SiteMonolit" "$SITE_REPOSITORY"
 sync_repo "$HUB_REPOSITORY" "$HUB_REF" .runtime/HubMonolith
 sync_repo "$SITE_REPOSITORY" "$SITE_REF" .runtime/SiteMonolit
 

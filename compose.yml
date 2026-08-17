@@ -49,6 +49,9 @@ services:
   site:
     build:
       context: ./.runtime/SiteMonolit/SiteSimpleAPPDEF
+      args:
+        VITE_MONOLITH_HUB_URL: ${HUB_PUBLIC_BASE_URL}
+        VITE_MONOLITH_ENABLE_DEVELOPMENT: ${SITE_ENABLE_DEVELOPMENT:-false}
     profiles: ["${DEPLOY_PROFILE}"]
     restart: unless-stopped
     expose: ["80"]
