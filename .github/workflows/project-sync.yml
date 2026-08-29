@@ -7,9 +7,8 @@ on:
     types: [opened, reopened, synchronize, converted_to_draft, ready_for_review, closed]
   pull_request_review:
     types: [submitted]
-  workflow_run:
-    workflows: ["MonolithDeploy CI"]
-    types: [completed]
+  issue_comment:
+    types: [created]
   workflow_dispatch:
     inputs:
       item_url:
@@ -26,7 +25,6 @@ permissions:
   contents: read
   issues: read
   pull-requests: read
-  actions: read
 
 jobs:
   sync-project:
@@ -36,15 +34,11 @@ jobs:
         shell: bash
         env:
           PROJECT_TOKEN: ${{ secrets.MONOLITH_PROJECT_TOKEN }}
-          REPO_TOKEN: ${{ github.token }}
           PROJECT_OWNER: Amulet-software
           PROJECT_TITLE: Monolith Development
         run: |
           set -euo pipefail
-          if [[ -z "${PROJECT_TOKEN:-}" ]]; then
-            echo "::notice title=Project sync disabled::Create repository secret MONOLITH_PROJECT_TOKEN to enable GitHub Projects synchronization."
-            exit 0
-          fi
+          if [[ -z "${PROJECT_TOKEN:-}" ]]; then echo "::notice title=Project sync disabled::Create repository secret MONOLITH_PROJECT_TOKEN to enable GitHub Projects synchronization."; exit 0; fi
           url=""; status=""
           case "$GITHUB_EVENT_NAME" in
             issues)
@@ -52,20 +46,22 @@ jobs:
               case "$action" in opened|reopened) status="Backlog" ;; closed) status="Done" ;; esac ;;
             pull_request)
               url="$(jq -r '.pull_request.html_url' "$GITHUB_EVENT_PATH")"; action="$(jq -r '.action' "$GITHUB_EVENT_PATH")"
-              case "$action" in opened|reopened|synchronize|converted_to_draft) status="In progress" ;; ready_for_review) status="In review" ;; closed) [[ "$(jq -r '.pull_request.merged' "$GITHUB_EVENT_PATH")" == "true" ]] && status="Done" ;; esac ;;
-            pull_request_review)
-              url="$(jq -r '.pull_request.html_url' "$GITHUB_EVENT_PATH")"; review_state="$(jq -r '.review.state | ascii_downcase' "$GITHUB_EVENT_PATH")"
-              case "$review_state" in
-                approved)
-                  check_states="$(GH_TOKEN="$REPO_TOKEN" gh pr checks "$url" --json state --jq '.[].state' 2>/dev/null || true)"
-                  if [[ -z "$check_states" ]] || ! grep -Eqv '^(SUCCESS|SKIPPED|NEUTRAL)$' <<<"$check_states"; then status="Ready to merge"; else status="In review"; fi ;;
-                changes_requested) status="In review" ;;
+              case "$action" in
+                opened|reopened|synchronize) [[ "$(jq -r '.pull_request.draft' "$GITHUB_EVENT_PATH")" == "true" ]] && status="In progress" || status="In review" ;;
+                converted_to_draft) status="In progress" ;;
+                ready_for_review) status="In review" ;;
+                closed) status="Done" ;;
               esac ;;
-            workflow_run)
-              pr_number="$(jq -r '.workflow_run.pull_requests[0].number // empty' "$GITHUB_EVENT_PATH")"
-              if [[ -n "$pr_number" ]]; then
-                url="https://github.com/${GITHUB_REPOSITORY}/pull/${pr_number}"; conclusion="$(jq -r '.workflow_run.conclusion // empty' "$GITHUB_EVENT_PATH")"
-                case "$conclusion" in success) review_decision="$(GH_TOKEN="$REPO_TOKEN" gh pr view "$url" --json reviewDecision --jq '.reviewDecision' 2>/dev/null || true)"; [[ "$review_decision" == "APPROVED" ]] && status="Ready to merge" || status="Testing" ;; failure|cancelled|timed_out|action_required) status="In progress" ;; esac
+            pull_request_review)
+              review_state="$(jq -r '.review.state | ascii_downcase' "$GITHUB_EVENT_PATH")"
+              if [[ "$review_state" == "changes_requested" ]]; then url="$(jq -r '.pull_request.html_url' "$GITHUB_EVENT_PATH")"; status="In progress"; fi ;;
+            issue_comment)
+              if [[ "$(jq -r '.issue.pull_request != null' "$GITHUB_EVENT_PATH")" == "true" ]]; then
+                association="$(jq -r '.comment.author_association // "NONE"' "$GITHUB_EVENT_PATH")"
+                case "$association" in OWNER|MEMBER|COLLABORATOR)
+                  command="$(jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH" | tr -d '\r' | xargs)"; url="$(jq -r '.issue.html_url' "$GITHUB_EVENT_PATH")"
+                  case "$command" in /tested) status="Ready to merge" ;; /test-failed) status="In progress" ;; esac ;;
+                esac
               fi ;;
             workflow_dispatch) url="$(jq -r '.inputs.item_url' "$GITHUB_EVENT_PATH")"; status="$(jq -r '.inputs.status' "$GITHUB_EVENT_PATH")" ;;
           esac
