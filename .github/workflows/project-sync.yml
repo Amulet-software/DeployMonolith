@@ -4,7 +4,7 @@ on:
   issues:
     types: [opened, reopened, closed]
   pull_request:
-    types: [opened, reopened, synchronize, converted_to_draft, ready_for_review, closed]
+    types: [opened, reopened, synchronize, edited, converted_to_draft, ready_for_review, closed]
   pull_request_review:
     types: [submitted]
   issue_comment:
@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       item_url:
-        description: Issue or PR URL
+        description: Issue URL
         required: true
         type: string
       status:
@@ -23,39 +23,27 @@ on:
 
 permissions:
   contents: read
-  issues: read
-  pull-requests: read
+  issues: write
+  pull-requests: write
 
 jobs:
   sync-project:
     runs-on: ubuntu-latest
+    env:
+      PROJECT_TOKEN: ${{ secrets.MONOLITH_PROJECT_TOKEN }}
+      REPO_TOKEN: ${{ github.token }}
+      PROJECT_OWNER: Amulet-software
+      PROJECT_TITLE: Monolith Development
     steps:
-      - name: Sync item with Monolith Development
+      - uses: actions/checkout@v4
+      - name: Sync Sprint and Project
+        if: env.PROJECT_TOKEN != ''
         shell: bash
-        env:
-          PROJECT_TOKEN: ${{ secrets.MONOLITH_PROJECT_TOKEN }}
-          REPO_TOKEN: ${{ github.token }}
-          PROJECT_OWNER: Amulet-software
-          PROJECT_TITLE: Monolith Development
         run: |
           set -euo pipefail
-          if [[ -z "${PROJECT_TOKEN:-}" ]]; then echo "::notice title=Project sync disabled::Create repository secret MONOLITH_PROJECT_TOKEN to enable GitHub Projects synchronization."; exit 0; fi
-          url=""; status=""; item_title=""; trusted=false
-          case "$GITHUB_EVENT_NAME" in
-            issues) url="$(jq -r '.issue.html_url' "$GITHUB_EVENT_PATH")"; item_title="$(jq -r '.issue.title // ""' "$GITHUB_EVENT_PATH")"; action="$(jq -r '.action' "$GITHUB_EVENT_PATH")"; case "$action" in opened|reopened) status="Backlog" ;; closed) status="Done" ;; esac ;;
-            pull_request) url="$(jq -r '.pull_request.html_url' "$GITHUB_EVENT_PATH")"; item_title="$(jq -r '.pull_request.title // ""' "$GITHUB_EVENT_PATH")"; action="$(jq -r '.action' "$GITHUB_EVENT_PATH")"; case "$action" in opened|reopened|synchronize) [[ "$(jq -r '.pull_request.draft' "$GITHUB_EVENT_PATH")" == "true" ]] && status="In progress" || status="In review" ;; converted_to_draft) status="In progress" ;; ready_for_review) status="In review" ;; closed) status="Done" ;; esac ;;
-            pull_request_review) url="$(jq -r '.pull_request.html_url' "$GITHUB_EVENT_PATH")"; item_title="$(jq -r '.pull_request.title // ""' "$GITHUB_EVENT_PATH")"; [[ "$(jq -r '.review.state | ascii_downcase' "$GITHUB_EVENT_PATH")" == "changes_requested" ]] && status="In progress" ;;
-            issue_comment) url="$(jq -r '.issue.html_url' "$GITHUB_EVENT_PATH")"; item_title="$(jq -r '.issue.title // ""' "$GITHUB_EVENT_PATH")"; association="$(jq -r '.comment.author_association // "NONE"' "$GITHUB_EVENT_PATH")"; case "$association" in OWNER|MEMBER|COLLABORATOR) trusted=true ;; esac; if [[ "$trusted" == "true" ]]; then command="$(jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH" | tr -d '\r' | xargs)"; is_pr="$(jq -r '.issue.pull_request != null' "$GITHUB_EVENT_PATH")"; if [[ "$is_pr" == "true" ]]; then case "$command" in /review) status="In review" ;; /tested) status="Ready to merge" ;; /test-failed) status="In progress" ;; esac; else case "$command" in /architecture-progress) status="In progress" ;; /architecture-ready) status="Ready to merge" ;; esac; fi; fi ;;
-            workflow_dispatch) url="$(jq -r '.inputs.item_url' "$GITHUB_EVENT_PATH")"; status="$(jq -r '.inputs.status' "$GITHUB_EVENT_PATH")" ;;
-          esac
-          if [[ -n "$url" && -z "$item_title" ]]; then if [[ "$url" == */pull/* ]]; then item_title="$(GH_TOKEN="$REPO_TOKEN" gh pr view "$url" --json title --jq '.title' 2>/dev/null || true)"; else item_title="$(GH_TOKEN="$REPO_TOKEN" gh issue view "$url" --json title --jq '.title' 2>/dev/null || true)"; fi; fi
-          is_architecture=false; is_infrastructure=false; [[ "$item_title" == "[Архитектура]"* ]] && is_architecture=true; [[ "$item_title" == "[Инфраструктура]"* ]] && is_infrastructure=true
-          if [[ "$is_architecture" == "true" ]]; then case "$status" in Backlog|Ready|Testing) status="In progress" ;; esac; fi
-          if [[ "$is_infrastructure" == "true" && "$status" == "Testing" ]]; then echo "::notice title=Infrastructure PR::Desktop Testing is not applicable; keeping the PR in review."; status="In review"; fi
-          [[ -z "$url" || -z "$status" ]] && { echo "No project update required for this event."; exit 0; }
-          rate_json="$(GH_TOKEN="$PROJECT_TOKEN" gh api rate_limit 2>/dev/null || true)"; graphql_remaining="$(jq -r '.resources.graphql.remaining // -1' <<<"$rate_json" 2>/dev/null || echo -1)"; graphql_reset="$(jq -r '.resources.graphql.reset // 0' <<<"$rate_json" 2>/dev/null || echo 0)"; if [[ "$graphql_remaining" =~ ^[0-9]+$ ]] && (( graphql_remaining < 25 )); then reset_text="$(python3 -c 'import datetime,sys; v=int(sys.argv[1]); print(datetime.datetime.fromtimestamp(v, datetime.timezone.utc).isoformat()) if v else print("unknown")' "$graphql_reset")"; echo "::warning title=Project API rate limit::GraphQL remaining=$graphql_remaining; reset=$reset_text. Project status will be retried by the next GitHub event."; exit 0; fi
-          project_json="$(GH_TOKEN="$PROJECT_TOKEN" gh api graphql -f query='query($login:String!){ organization(login:$login){ projectsV2(first:100){ nodes { id number title fields(first:100){ nodes { ... on ProjectV2SingleSelectField { id name options { id name } } ... on ProjectV2IterationField { id name configuration { iterations { id title startDate duration } } } } } items(first:100){ nodes { id content { ... on Issue { url } ... on PullRequest { url } } } } } } } }' -f login="$PROJECT_OWNER")"; project="$(jq -c --arg title "$PROJECT_TITLE" '.data.organization.projectsV2.nodes[] | select(.title == $title)' <<<"$project_json" | head -n 1)"; [[ -z "$project" ]] && { echo "::error::Project '$PROJECT_TITLE' was not found."; exit 1; }
-          project_id="$(jq -r '.id' <<<"$project")"; item_id="$(jq -r --arg url "$url" '.items.nodes[] | select(.content.url == $url) | .id' <<<"$project" | head -n 1)"
-          if [[ -z "$item_id" ]]; then path="${url#https://github.com/}"; IFS='/' read -r repo_owner repo_name content_kind content_number _ <<<"$path"; if [[ "$content_kind" == "pull" ]]; then content_id="$(GH_TOKEN="$PROJECT_TOKEN" gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){ repository(owner:$owner,name:$name){ pullRequest(number:$number){ id } } }' -f owner="$repo_owner" -f name="$repo_name" -F number="$content_number" --jq '.data.repository.pullRequest.id')"; else content_id="$(GH_TOKEN="$PROJECT_TOKEN" gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){ repository(owner:$owner,name:$name){ issue(number:$number){ id } } }' -f owner="$repo_owner" -f name="$repo_name" -F number="$content_number" --jq '.data.repository.issue.id')"; fi; [[ -z "$content_id" || "$content_id" == "null" ]] && { echo "::error::Could not resolve project content for $url"; exit 1; }; item_id="$(GH_TOKEN="$PROJECT_TOKEN" gh api graphql -f query='mutation($projectId:ID!,$contentId:ID!){ addProjectV2ItemById(input:{projectId:$projectId,contentId:$contentId}){ item { id } } }' -f projectId="$project_id" -f contentId="$content_id" --jq '.data.addProjectV2ItemById.item.id')"; fi
-          status_field_id="$(jq -r '.fields.nodes[] | select(.name == "Status") | .id' <<<"$project" | head -n 1)"; status_option_id="$(jq -r --arg status "$status" '.fields.nodes[] | select(.name == "Status") | .options[] | select(.name == $status) | .id' <<<"$project" | head -n 1)"; [[ -z "$status_field_id" || -z "$status_option_id" ]] && { echo "::error::Project status '$status' was not found."; exit 1; }; GH_TOKEN="$PROJECT_TOKEN" gh api graphql -f query='mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optionId:String!){ updateProjectV2ItemFieldValue(input:{projectId:$projectId,itemId:$itemId,fieldId:$fieldId,value:{singleSelectOptionId:$optionId}}){ projectV2Item { id } } }' -f projectId="$project_id" -f itemId="$item_id" -f fieldId="$status_field_id" -f optionId="$status_option_id" >/dev/null
-          iteration_field_id="$(jq -r '.fields.nodes[] | select(.name == "Iteration") | .id' <<<"$project" | head -n 1)"; current_iteration_id="$(python3 -c 'import json,sys,datetime as d; p=json.load(sys.stdin); today=d.datetime.now(d.timezone.utc).date(); fs=p["fields"]["nodes"]; its=next((f["configuration"]["iterations"] for f in fs if f and f.get("name")=="Iteration"), []); print(next((i["id"] for i in its if d.date.fromisoformat(i["startDate"]) <= today < d.date.fromisoformat(i["startDate"]) + d.timedelta(days=i["duration"])), ""))' <<<"$project")"; current_iteration_title="$(python3 -c 'import json,sys,datetime as d; p=json.load(sys.stdin); today=d.datetime.now(d.timezone.utc).date(); fs=p["fields"]["nodes"]; its=next((f["configuration"]["iterations"] for f in fs if f and f.get("name")=="Iteration"), []); print(next((i["title"] for i in its if d.date.fromisoformat(i["startDate"]) <= today < d.date.fromisoformat(i["startDate"]) + d.timedelta(days=i["duration"])), ""))' <<<"$project")"; if [[ -n "$iteration_field_id" && -n "$current_iteration_id" ]]; then GH_TOKEN="$PROJECT_TOKEN" gh api graphql -f query='mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$iterationId:String!){ updateProjectV2ItemFieldValue(input:{projectId:$projectId,itemId:$itemId,fieldId:$fieldId,value:{iterationId:$iterationId}}){ projectV2Item { id } } }' -f projectId="$project_id" -f itemId="$item_id" -f fieldId="$iteration_field_id" -f iterationId="$current_iteration_id" >/dev/null; echo "Synced $url -> $status, iteration: $current_iteration_title"; else echo "Synced $url -> $status; current iteration was not found."; fi
+          if [[ "$(jq -r '.action // ""' "$GITHUB_EVENT_PATH")" == "edited" ]]; then
+            normalized_event="$(mktemp)"
+            jq '.action = "synchronize"' "$GITHUB_EVENT_PATH" > "$normalized_event"
+            export GITHUB_EVENT_PATH="$normalized_event"
+          fi
+          bash .github/scripts/project-sync.sh
