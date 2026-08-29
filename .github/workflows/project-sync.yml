@@ -1,0 +1,87 @@
+name: Monolith Project Sync
+
+on:
+  issues:
+    types: [opened, reopened, closed]
+  pull_request:
+    types: [opened, reopened, synchronize, converted_to_draft, ready_for_review, closed]
+  pull_request_review:
+    types: [submitted]
+  workflow_run:
+    workflows: ["MonolithDeploy CI"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      item_url:
+        description: Issue or PR URL
+        required: true
+        type: string
+      status:
+        description: Project status
+        required: true
+        type: choice
+        options: [Backlog, Ready, In progress, In review, Testing, Ready to merge, Done]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  actions: read
+
+jobs:
+  sync-project:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync item with Monolith Development
+        shell: bash
+        env:
+          PROJECT_TOKEN: ${{ secrets.MONOLITH_PROJECT_TOKEN }}
+          REPO_TOKEN: ${{ github.token }}
+          PROJECT_OWNER: Amulet-software
+          PROJECT_TITLE: Monolith Development
+        run: |
+          set -euo pipefail
+          if [[ -z "${PROJECT_TOKEN:-}" ]]; then
+            echo "::notice title=Project sync disabled::Create repository secret MONOLITH_PROJECT_TOKEN to enable GitHub Projects synchronization."
+            exit 0
+          fi
+          url=""; status=""
+          case "$GITHUB_EVENT_NAME" in
+            issues)
+              url="$(jq -r '.issue.html_url' "$GITHUB_EVENT_PATH")"; action="$(jq -r '.action' "$GITHUB_EVENT_PATH")"
+              case "$action" in opened|reopened) status="Backlog" ;; closed) status="Done" ;; esac ;;
+            pull_request)
+              url="$(jq -r '.pull_request.html_url' "$GITHUB_EVENT_PATH")"; action="$(jq -r '.action' "$GITHUB_EVENT_PATH")"
+              case "$action" in opened|reopened|synchronize|converted_to_draft) status="In progress" ;; ready_for_review) status="In review" ;; closed) [[ "$(jq -r '.pull_request.merged' "$GITHUB_EVENT_PATH")" == "true" ]] && status="Done" ;; esac ;;
+            pull_request_review)
+              url="$(jq -r '.pull_request.html_url' "$GITHUB_EVENT_PATH")"; review_state="$(jq -r '.review.state | ascii_downcase' "$GITHUB_EVENT_PATH")"
+              case "$review_state" in
+                approved)
+                  check_states="$(GH_TOKEN="$REPO_TOKEN" gh pr checks "$url" --json state --jq '.[].state' 2>/dev/null || true)"
+                  if [[ -z "$check_states" ]] || ! grep -Eqv '^(SUCCESS|SKIPPED|NEUTRAL)$' <<<"$check_states"; then status="Ready to merge"; else status="In review"; fi ;;
+                changes_requested) status="In review" ;;
+              esac ;;
+            workflow_run)
+              pr_number="$(jq -r '.workflow_run.pull_requests[0].number // empty' "$GITHUB_EVENT_PATH")"
+              if [[ -n "$pr_number" ]]; then
+                url="https://github.com/${GITHUB_REPOSITORY}/pull/${pr_number}"; conclusion="$(jq -r '.workflow_run.conclusion // empty' "$GITHUB_EVENT_PATH")"
+                case "$conclusion" in success) review_decision="$(GH_TOKEN="$REPO_TOKEN" gh pr view "$url" --json reviewDecision --jq '.reviewDecision' 2>/dev/null || true)"; [[ "$review_decision" == "APPROVED" ]] && status="Ready to merge" || status="Testing" ;; failure|cancelled|timed_out|action_required) status="In progress" ;; esac
+              fi ;;
+            workflow_dispatch) url="$(jq -r '.inputs.item_url' "$GITHUB_EVENT_PATH")"; status="$(jq -r '.inputs.status' "$GITHUB_EVENT_PATH")" ;;
+          esac
+          [[ -z "$url" || -z "$status" ]] && { echo "No project update required for this event."; exit 0; }
+          project_number="$(GH_TOKEN="$PROJECT_TOKEN" gh project list --owner "$PROJECT_OWNER" --format json --jq ".projects[] | select(.title == \"$PROJECT_TITLE\") | .number" | head -n 1)"
+          [[ -z "$project_number" ]] && { echo "::error::Project '$PROJECT_TITLE' was not found for '$PROJECT_OWNER'."; exit 1; }
+          project_id="$(GH_TOKEN="$PROJECT_TOKEN" gh project view "$project_number" --owner "$PROJECT_OWNER" --format json --jq '.id')"
+          item_id="$(GH_TOKEN="$PROJECT_TOKEN" gh project item-add "$project_number" --owner "$PROJECT_OWNER" --url "$url" --format json --jq '.id')"
+          GH_TOKEN="$PROJECT_TOKEN" gh project item-edit "$project_number" --owner "$PROJECT_OWNER" --url "$url" --field "Status" --value "$status"
+          iteration_json="$(GH_TOKEN="$PROJECT_TOKEN" gh api graphql -f query="query { organization(login: \"$PROJECT_OWNER\") { projectV2(number: $project_number) { fields(first: 100) { nodes { ... on ProjectV2IterationField { id name configuration { iterations { id title startDate duration } } } } } } } }")"
+          iteration_field_id="$(jq -r '.data.organization.projectV2.fields.nodes[] | select(.name == "Iteration") | .id' <<<"$iteration_json" | head -n 1)"
+          current_iteration_id="$(python3 -c 'import json,sys,datetime as d; x=json.load(sys.stdin); t=d.datetime.now(d.timezone.utc).date(); fs=x["data"]["organization"]["projectV2"]["fields"]["nodes"]; its=next((f["configuration"]["iterations"] for f in fs if f and f.get("name")=="Iteration"), []); print(next((i["id"] for i in its if d.date.fromisoformat(i["startDate"]) <= t < d.date.fromisoformat(i["startDate"]) + d.timedelta(days=i["duration"])), ""))' <<<"$iteration_json")"
+          current_iteration_title="$(python3 -c 'import json,sys,datetime as d; x=json.load(sys.stdin); t=d.datetime.now(d.timezone.utc).date(); fs=x["data"]["organization"]["projectV2"]["fields"]["nodes"]; its=next((f["configuration"]["iterations"] for f in fs if f and f.get("name")=="Iteration"), []); print(next((i["title"] for i in its if d.date.fromisoformat(i["startDate"]) <= t < d.date.fromisoformat(i["startDate"]) + d.timedelta(days=i["duration"])), ""))' <<<"$iteration_json")"
+          if [[ -n "$iteration_field_id" && -n "$current_iteration_id" ]]; then
+            GH_TOKEN="$PROJECT_TOKEN" gh project item-edit --id "$item_id" --project-id "$project_id" --field-id "$iteration_field_id" --iteration-id "$current_iteration_id"
+            echo "Synced $url -> $status, iteration: $current_iteration_title"
+          else
+            echo "::warning title=Iteration not assigned::Current iteration was not found; synced only status '$status'."
+          fi
