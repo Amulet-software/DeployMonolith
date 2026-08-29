@@ -4,16 +4,25 @@ cd "$(dirname "$0")"
 
 profile=${1:-}
 action=${2:-status}
+role_arg=${3:-}
 deploy_user=${MONOLITH_DEPLOY_USER:-monolith}
 
+usage() {
+  echo "Usage: sudo bash ./deploy-key-setup.sh dev [generate|verify|status|rotate ROLE]" >&2
+  echo "ROLE: monolithdeploy | hubmonolith | sitemonolit" >&2
+}
+
 [[ "$profile" == "dev" ]] || {
-  echo "Usage: sudo bash ./deploy-key-setup.sh dev [generate|verify|status]" >&2
+  usage
   echo "Profiles test and production are intentionally disabled." >&2
   exit 2
 }
 case "$action" in
   generate|verify|status) ;;
-  *) echo "Usage: sudo bash ./deploy-key-setup.sh dev [generate|verify|status]" >&2; exit 2 ;;
+  rotate)
+    [[ -n "$role_arg" ]] || { usage; exit 2; }
+    ;;
+  *) usage; exit 2 ;;
 esac
 [[ ${EUID} -eq 0 ]] || { echo "Run as root with sudo." >&2; exit 1; }
 id "$deploy_user" >/dev/null 2>&1 || { echo "Deploy user '$deploy_user' does not exist. Run bootstrap.sh dev --prepare-only first." >&2; exit 1; }
@@ -36,6 +45,33 @@ ensure_layout() {
 
 key_path() {
   printf '%s/%s_ed25519' "$key_root" "$1"
+}
+
+role_exists() {
+  local wanted="$1" role
+  for role in "${roles[@]}"; do
+    [[ "$role" == "$wanted" ]] && return 0
+  done
+  return 1
+}
+
+marker_for_role() {
+  case "$1" in
+    monolithdeploy) echo "MONOLITHDEPLOY_PUBLIC_KEY" ;;
+    hubmonolith) echo "HUBMONOLITH_PUBLIC_KEY" ;;
+    sitemonolit) echo "SITEMONOLIT_PUBLIC_KEY" ;;
+    *) return 1 ;;
+  esac
+}
+
+create_key() {
+  local role="$1" path
+  path=$(key_path "$role")
+  runuser -u "$deploy_user" -- ssh-keygen -q -t ed25519 -N '' \
+    -C "monolith-dev:${role}@$(hostname)" -f "$path"
+  chown "$deploy_user:$deploy_user" "$path" "$path.pub"
+  chmod 600 "$path"
+  chmod 644 "$path.pub"
 }
 
 write_ssh_config() {
@@ -86,12 +122,12 @@ generate_keys() {
     role=${roles[$i]}
     path=$(key_path "$role")
     if [[ ! -f "$path" ]]; then
-      runuser -u "$deploy_user" -- ssh-keygen -q -t ed25519 -N '' \
-        -C "monolith-dev:${role}@$(hostname)" -f "$path"
+      create_key "$role"
+    else
+      chown "$deploy_user:$deploy_user" "$path" "$path.pub"
+      chmod 600 "$path"
+      chmod 644 "$path.pub"
     fi
-    chown "$deploy_user:$deploy_user" "$path" "$path.pub"
-    chmod 600 "$path"
-    chmod 644 "$path.pub"
   done
   write_ssh_config
   ensure_github_host_key
@@ -100,6 +136,20 @@ generate_keys() {
   echo "MONOLITHDEPLOY_PUBLIC_KEY=$(cat "$(key_path monolithdeploy).pub")"
   echo "HUBMONOLITH_PUBLIC_KEY=$(cat "$(key_path hubmonolith).pub")"
   echo "SITEMONOLIT_PUBLIC_KEY=$(cat "$(key_path sitemonolit).pub")"
+}
+
+rotate_key() {
+  local role="$1" path marker
+  role_exists "$role" || { echo "Unknown deploy key role: $role" >&2; usage; exit 2; }
+  ensure_layout
+  path=$(key_path "$role")
+  rm -f "$path" "$path.pub"
+  create_key "$role"
+  write_ssh_config
+  ensure_github_host_key
+  marker=$(marker_for_role "$role")
+  echo "DEPLOY_KEY_ROTATED=$role"
+  echo "$marker=$(cat "$path.pub")"
 }
 
 update_env_repositories() {
@@ -152,6 +202,7 @@ show_status() {
 
 case "$action" in
   generate) generate_keys ;;
+  rotate) rotate_key "$role_arg" ;;
   verify) verify_access ;;
   status) show_status ;;
 esac
