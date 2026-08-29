@@ -1,0 +1,46 @@
+name: Project Naming Guard
+
+on:
+  issues:
+    types: [opened, reopened, edited]
+  pull_request:
+    types: [opened, reopened, edited]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  normalize-title:
+    runs-on: ubuntu-latest
+    env:
+      PREFIX: Deploy
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Normalize task prefix
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "issues" ]]; then
+            title="$(jq -r '.issue.title // ""' "$GITHUB_EVENT_PATH")"
+            number="$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")"
+          else
+            title="$(jq -r '.pull_request.title // ""' "$GITHUB_EVENT_PATH")"
+            number="$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")"
+          fi
+          [[ "$title" == "[Архитектура]"* ]] && exit 0
+          [[ "$title" == "[$PREFIX] "* ]] && exit 0
+          base=""
+          if [[ "$title" =~ ^\[Инфраструктура\]\[Спринт[^]]*\][[:space:]]*(.*)$ ]]; then
+            base="${BASH_REMATCH[1]}"
+          elif [[ "$title" =~ ^\[Спринт[^]]*\][[:space:]]*(.*)$ ]]; then
+            base="${BASH_REMATCH[1]}"
+          elif [[ "$title" =~ ^Sprint:[[:space:]]*(.*)$ ]]; then
+            base="${BASH_REMATCH[1]}"
+          else
+            exit 0
+          fi
+          [[ -z "$base" ]] && exit 0
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/$number" -f title="[$PREFIX] $base" >/dev/null
+          echo "Normalized title -> [$PREFIX] $base"
