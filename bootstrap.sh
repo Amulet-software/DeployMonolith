@@ -53,11 +53,53 @@ fi
 usermod -aG docker "$deploy_user"
 
 env_file=".env.$profile"
-[[ -f "$env_file" ]] || cp "profiles/$profile.env.example" "$env_file"
+env_created=false
+if [[ ! -f "$env_file" ]]; then
+  cp "profiles/$profile.env.example" "$env_file"
+  env_created=true
+fi
+
+env_get() { sed -n "s/^$1=//p" "$env_file" | tail -n 1; }
+set_env() {
+  local key=$1 value=$2 escaped
+  escaped=${value//|/\\|}
+  if grep -q "^${key}=" "$env_file"; then
+    sed -i "s|^${key}=.*|${key}=${escaped}|" "$env_file"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$env_file"
+  fi
+}
+
+detect_dev_ip() {
+  local detected
+  detected=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i == "src") {print $(i+1); exit}}' || true)
+  if [[ -z "$detected" ]]; then
+    detected=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
+  fi
+  printf '%s' "${detected:-127.0.0.1}"
+}
+
+# New clean hosts are self-configuring. Existing explicitly configured URLs are
+# preserved; only template/legacy defaults are migrated automatically.
+dev_ip=$(detect_dev_ip)
+site_public=$(env_get SITE_PUBLIC_URL || true)
+hub_public=$(env_get HUB_PUBLIC_BASE_URL || true)
+cors_origins=$(env_get HUB_CORS_ORIGINS || true)
+if [[ "$env_created" == "true" || "$site_public" == "http://127.0.0.1" || "$site_public" == "http://192.168.1.32" ]]; then
+  set_env SITE_PUBLIC_URL "http://${dev_ip}"
+fi
+if [[ "$env_created" == "true" || "$hub_public" == "http://127.0.0.1:8080" || "$hub_public" == "http://192.168.1.32:8080" ]]; then
+  set_env HUB_PUBLIC_BASE_URL "http://${dev_ip}:8080"
+fi
+if [[ "$env_created" == "true" || "$cors_origins" == '["http://127.0.0.1"]' || "$cors_origins" == '["http://192.168.1.32"]' ]]; then
+  set_env HUB_CORS_ORIGINS "[\"http://${dev_ip}\"]"
+fi
+set_env HUB_ENVIRONMENT shared
+
 for key in POSTGRES_PASSWORD HUB_ADMIN_KEY; do
   if grep -q "^${key}=change-me$" "$env_file"; then
     value=$(openssl rand -hex 32)
-    sed -i "s/^${key}=change-me$/${key}=${value}/" "$env_file"
+    set_env "$key" "$value"
   fi
 done
 
@@ -70,6 +112,9 @@ chmod 0755 deploy-key-setup.sh install-runner.sh deployment-status.sh 2>/dev/nul
 
 echo "DEV host prerequisites are installed."
 echo "Deploy user: $deploy_user"
+echo "Detected DEV address: $dev_ip"
+echo "Site URL: $(env_get SITE_PUBLIC_URL)"
+echo "Shared Hub URL: $(env_get HUB_PUBLIC_BASE_URL)"
 echo "Docker: $(docker --version)"
 echo "Compose: $(docker compose version)"
 
@@ -87,4 +132,4 @@ fi
 echo "Running DEV deploy as $deploy_user."
 echo "Private HubMonolith/SiteMonolit repositories must already be readable through the configured SSH deploy keys."
 runuser -u "$deploy_user" -- ./deploy.sh "$profile"
-echo "DEV bootstrap complete: site http://192.168.1.32, hub http://192.168.1.32:8080"
+echo "DEV bootstrap complete: site $(env_get SITE_PUBLIC_URL), shared hub $(env_get HUB_PUBLIC_BASE_URL)"
