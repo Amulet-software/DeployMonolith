@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       item_url:
-        description: Issue URL
+        description: Issue or Pull Request URL
         required: true
         type: string
       status:
@@ -39,11 +39,4 @@ jobs:
       - name: Sync Sprint and Project
         if: env.PROJECT_TOKEN != ''
         shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "$(jq -r '.action // ""' "$GITHUB_EVENT_PATH")" == "edited" ]]; then
-            normalized_event="$(mktemp)"
-            jq '.action = "synchronize"' "$GITHUB_EVENT_PATH" > "$normalized_event"
-            export GITHUB_EVENT_PATH="$normalized_event"
-          fi
-          bash .github/scripts/project-sync.sh
+        run: bash .github/scripts/project-sync.sh
