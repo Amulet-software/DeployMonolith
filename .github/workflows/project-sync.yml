@@ -42,7 +42,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${PROJECT_TOKEN:-}" ]]; then
-            echo "::notice title=Project sync disabled::Create organization secret MONOLITH_PROJECT_TOKEN to enable GitHub Projects synchronization."
+            echo "::notice title=Project sync disabled::Create repository secret MONOLITH_PROJECT_TOKEN to enable GitHub Projects synchronization."
             exit 0
           fi
           url=""; status=""
