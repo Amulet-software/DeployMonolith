@@ -2,35 +2,9 @@ server {
   listen 80 default_server;
   server_name _;
 
-  # Legacy Monolith clients historically ask the public Site origin for update
-  # metadata and artifacts. Keep those URLs stable while Hub remains the source
-  # of truth. Do not proxy the whole /monolith/ prefix: Site still owns
-  # /monolith/docs/* and other static documentation.
-  location = /version_monolith.txt {
-    proxy_pass http://hub:8080;
-    include /etc/nginx/proxy.conf;
-  }
-
-  location = /monolith/releases.json {
-    proxy_pass http://hub:8080;
-    include /etc/nginx/proxy.conf;
-  }
-
-  location = /monolith/modules/catalog.json {
-    proxy_pass http://hub:8080;
-    include /etc/nginx/proxy.conf;
-  }
-
-  location ^~ /monolith/modules/packages/ {
-    proxy_pass http://hub:8080;
-    include /etc/nginx/proxy.conf;
-  }
-
-  location ^~ /monolith/releases/ {
-    proxy_pass http://hub:8080;
-    include /etc/nginx/proxy.conf;
-  }
-
+  # SiteMonolit owns the public compatibility gateway. This keeps legacy
+  # /version_monolith.txt and /monolith/* metadata bound to the Site's physical
+  # contour instead of exposing a global Hub catalog here.
   location / {
     proxy_pass http://site:80;
     include /etc/nginx/proxy.conf;
