@@ -1,4 +1,4 @@
-# MonolithDeploy
+# DeployMonolith
 
 Инфраструктура Monolith по схеме **«один профиль = один сервер»**. На сервере запускается один независимый набор контейнеров: Nginx, SiteMonolit, HubMonolith и PostgreSQL.
 
@@ -49,7 +49,7 @@ SITE_REF=main
 ```bash
 sudo mkdir -p /opt/monolith
 sudo chown "$USER":"$USER" /opt/monolith
-git clone https://github.com/Amulet-software/MonolithDeploy.git /opt/monolith
+git clone https://github.com/Amulet-software/DeployMonolith.git /opt/monolith
 cd /opt/monolith
 sudo ./bootstrap.sh dev
 ```
@@ -74,7 +74,7 @@ sudo ./bootstrap.sh dev --prepare-only
 Затем:
 
 1. настройте read-доступ `monolith` к приватным HubMonolith и SiteMonolit;
-2. зарегистрируйте repository-scoped self-hosted runner репозитория `MonolithDeploy` от пользователя `monolith`;
+2. зарегистрируйте repository-scoped self-hosted runner репозитория `DeployMonolith` от пользователя `monolith`;
 3. при `config.sh` добавьте custom label `monolith-dev`;
 4. установите runner как systemd service от пользователя `monolith`;
 5. в GitHub Actions вручную запустите workflow **Deploy DEV**, введя подтверждение `DEPLOY-DEV`.
@@ -91,7 +91,7 @@ self-hosted + linux + x64 + monolith-dev
         ↓
 проверка user/IP/Docker/.env.dev
         ↓
-синхронизация MonolithDeploy → /opt/monolith
+синхронизация DeployMonolith → /opt/monolith
         ↓
 DEV preflight
         ↓
@@ -149,10 +149,10 @@ sudo -u monolith ./backup.sh dev
 - `.env.dev`, `.runtime/` и `backups/` не попадают в Git;
 - signed `.monmod` enforcement включён;
 - runner работает не от root, а от отдельного пользователя `monolith`;
-- runner рекомендуется регистрировать только в `MonolithDeploy`, не на всю организацию;
+- runner рекомендуется регистрировать только в `DeployMonolith`, не на всю организацию;
 - workflow требует label `monolith-dev` и ручное подтверждение `DEPLOY-DEV`;
 - Test/Production текущими deploy-скриптами запустить нельзя.
 
-## CI MonolithDeploy
+## CI DeployMonolith
 
 Обычный CI проверяет shell-синтаксис инфраструктурных скриптов и `docker compose config` для DEV. Реальный deployment выполняет отдельный manual workflow `Deploy DEV` только на DEV self-hosted runner.
