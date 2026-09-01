@@ -4,7 +4,7 @@
 
 ## 1. Подготовить голый сервер без deploy
 
-Получите `MonolithDeploy` в `/opt/monolith`, затем:
+Получите `DeployMonolith` в `/opt/monolith`, затем:
 
 ```bash
 cd /opt/monolith
@@ -73,7 +73,7 @@ Git access preflight passed for HubMonolith and SiteMonolit. No containers were 
 
 В GitHub откройте:
 
-`Amulet-software/MonolithDeploy → Settings → Actions → Runners → New self-hosted runner`
+`Amulet-software/DeployMonolith → Settings → Actions → Runners → New self-hosted runner`
 
 Выберите Linux x64. GitHub покажет актуальные команды скачивания runner и одноразовый registration token. Выполняйте команды от пользователя `monolith`:
 
@@ -87,7 +87,7 @@ cd ~/actions-runner
 
 ```bash
 ./config.sh \
-  --url https://github.com/Amulet-software/MonolithDeploy \
+  --url https://github.com/Amulet-software/DeployMonolith \
   --token <ONE_TIME_REGISTRATION_TOKEN> \
   --name monolith-dev-192-168-1-32 \
   --labels monolith-dev \
@@ -130,7 +130,7 @@ DEV CI/CD preflight passed: user=monolith host=192.168.1.32 docker=ready
 
 ## 6. Первый GitHub Actions deploy
 
-В `MonolithDeploy` откройте `Actions → Deploy DEV → Run workflow`.
+В `DeployMonolith` откройте `Actions → Deploy DEV → Run workflow`.
 
 В поле confirmation введите строго:
 
@@ -141,7 +141,7 @@ DEPLOY-DEV
 Workflow должен пройти этапы:
 
 ```text
-Checkout MonolithDeploy
+Checkout DeployMonolith
 Verify DEV runner
 Sync deployment definition
 Run DEV preflight
