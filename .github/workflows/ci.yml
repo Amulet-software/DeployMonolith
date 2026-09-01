@@ -1,4 +1,4 @@
-name: MonolithDeploy CI
+name: DeployMonolith CI
 
 on:
   push:
