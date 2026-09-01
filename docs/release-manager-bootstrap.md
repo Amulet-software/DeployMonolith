@@ -19,11 +19,11 @@ Current DEV target:
 Release Manager performs the following sequence:
 
 1. Authenticates the operator locally with GitHub CLI web login.
-2. Transfers the current `MonolithDeploy` bootstrap definition to the server over SSH.
+2. Transfers the current `DeployMonolith` bootstrap definition to the server over SSH.
 3. Runs `bootstrap.sh dev --prepare-only`.
 4. Generates three independent Ed25519 deploy keys with `deploy-key-setup.sh dev generate`.
 5. Registers the public keys as read-only deploy keys in:
-   - `Amulet-software/MonolithDeploy`
+   - `Amulet-software/DeployMonolith`
    - `Amulet-software/HubMonolith`
    - `Amulet-software/SiteMonolit`
 6. Runs `deploy-key-setup.sh dev verify` and switches Hub/Site repository URLs to SSH aliases.
@@ -44,6 +44,8 @@ Keys:
 ~monolith/.ssh/monolith/hubmonolith_ed25519
 ~monolith/.ssh/monolith/sitemonolit_ed25519
 ```
+
+The `monolithdeploy` key filename is retained as a compatibility identifier for already prepared hosts.
 
 SSH aliases are written into a managed block in `~monolith/.ssh/config`:
 
@@ -70,7 +72,7 @@ SITE_REPOSITORY=git@github-site-monolit:Amulet-software/SiteMonolit.git
 - runs as root but configures the runner identity as the `monolith` user;
 - resolves the latest official `actions/runner` release;
 - verifies the release SHA-256 when GitHub exposes an asset digest;
-- registers the runner only for `Amulet-software/MonolithDeploy`;
+- registers the runner only for `Amulet-software/DeployMonolith`;
 - applies label `monolith-dev`;
 - reads the one-time registration token from stdin rather than a command-line argument.
 
