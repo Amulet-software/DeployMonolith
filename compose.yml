@@ -54,6 +54,10 @@ services:
         VITE_MONOLITH_ENABLE_DEVELOPMENT: ${SITE_ENABLE_DEVELOPMENT:-false}
     profiles: ["${DEPLOY_PROFILE}"]
     restart: unless-stopped
+    environment:
+      # Site also owns the legacy update gateway when it is reached directly.
+      # In the integrated stack use Docker DNS instead of the public round-trip.
+      MONOLITH_HUB_UPSTREAM: http://hub:8080
     expose: ["80"]
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
