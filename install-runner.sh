@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 profile=${1:-}
 mode=${2:---token-stdin}
 deploy_user=${MONOLITH_DEPLOY_USER:-monolith}
-repo_url=${MONOLITH_RUNNER_REPOSITORY_URL:-https://github.com/Amulet-software/MonolithDeploy}
+repo_url=${MONOLITH_RUNNER_REPOSITORY_URL:-https://github.com/Amulet-software/DeployMonolith}
 runner_label=${MONOLITH_RUNNER_LABEL:-monolith-dev}
 runner_name=${MONOLITH_RUNNER_NAME:-monolith-dev-$(hostname)}
 runner_root=${MONOLITH_RUNNER_ROOT:-/home/$deploy_user/actions-runner}
