@@ -26,15 +26,15 @@ jobs:
           bash -n install-runner.sh
           bash -n deployment-status.sh
 
-      - name: Validate legacy Monolith gateway
+      - name: Validate contour-aware Site compatibility wiring
         run: |
-          grep -Fq 'location = /version_monolith.txt' nginx/default.conf.template
-          grep -Fq 'location = /monolith/releases.json' nginx/default.conf.template
-          grep -Fq 'location = /monolith/modules/catalog.json' nginx/default.conf.template
-          grep -Fq 'location ^~ /monolith/modules/packages/' nginx/default.conf.template
-          grep -Fq 'location ^~ /monolith/releases/' nginx/default.conf.template
-          grep -Fq 'proxy_pass http://hub:8080;' nginx/default.conf.template
           grep -Fq 'proxy_pass http://site:80;' nginx/default.conf.template
+          grep -Fq 'MONOLITH_HUB_UPSTREAM: http://hub:8080' compose.yml
+          grep -Fq 'VITE_MONOLITH_CONTOUR_ID: ${SITE_CONTOUR_ID:-prod}' compose.yml
+          grep -Fq 'MONOLITH_CONTOUR_ID: ${SITE_CONTOUR_ID:-prod}' compose.yml
+          grep -Fq 'SITE_CONTOUR_ID=dev' profiles/dev.env.example
+          grep -Fq 'SITE_CONTOUR_ID=test' profiles/test.env.example
+          grep -Fq 'SITE_CONTOUR_ID=prod' profiles/production.env.example
 
       - name: Validate DEV Compose
         run: |
