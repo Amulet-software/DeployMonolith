@@ -23,9 +23,10 @@ ssh_dir="$home_dir/.ssh"
 key_root="$ssh_dir/monolith"
 env_file=".env.$profile"
 
+# Keep role/key names stable for existing servers and .env compatibility.
 roles=(monolithdeploy hubmonolith sitemonolit)
 aliases=(github-monolith-deploy github-hub-monolith github-site-monolit)
-repos=(Amulet-software/MonolithDeploy Amulet-software/HubMonolith Amulet-software/SiteMonolit)
+repos=(Amulet-software/DeployMonolith Amulet-software/HubMonolith Amulet-software/SiteMonolit)
 
 ensure_layout() {
   install -d -m 700 -o "$deploy_user" -g "$deploy_user" "$ssh_dir" "$key_root"
@@ -129,7 +130,7 @@ verify_access() {
 
   update_env_repositories
   if [[ -d .git ]]; then
-    git remote set-url origin git@github-monolith-deploy:Amulet-software/MonolithDeploy.git
+    git remote set-url origin git@github-monolith-deploy:Amulet-software/DeployMonolith.git
   fi
   echo "All Monolith deploy keys are valid. HTTPS/PAT fallback is disabled in $env_file."
 }
