@@ -26,6 +26,16 @@ jobs:
           bash -n install-runner.sh
           bash -n deployment-status.sh
 
+      - name: Validate legacy Monolith gateway
+        run: |
+          grep -Fq 'location = /version_monolith.txt' nginx/default.conf.template
+          grep -Fq 'location = /monolith/releases.json' nginx/default.conf.template
+          grep -Fq 'location = /monolith/modules/catalog.json' nginx/default.conf.template
+          grep -Fq 'location ^~ /monolith/modules/packages/' nginx/default.conf.template
+          grep -Fq 'location ^~ /monolith/releases/' nginx/default.conf.template
+          grep -Fq 'proxy_pass http://hub:8080;' nginx/default.conf.template
+          grep -Fq 'proxy_pass http://site:80;' nginx/default.conf.template
+
       - name: Validate DEV Compose
         run: |
           docker compose \
