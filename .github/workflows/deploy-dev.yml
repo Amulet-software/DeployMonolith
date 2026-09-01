@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - name: Checkout MonolithDeploy
+      - name: Checkout DeployMonolith
         uses: actions/checkout@v4
 
       - name: Verify DEV runner
